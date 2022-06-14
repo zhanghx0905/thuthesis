@@ -18,7 +18,7 @@
   % 标题
   %   可使用“\\”命令手动控制换行
   %
-  title  = {清华大学学位论文 \LaTeX{} 模板\\使用示例文档 v\version},
+  title  = {基于 Cython 的 C++ API 自动包装器设计与实现},
   title* = {An Introduction to \LaTeX{} Thesis Template of Tsinghua
             University v\version},
   %
@@ -72,8 +72,8 @@
   %
   % 副指导教师
   %
-  associate-supervisor  = {陈文光, 教授},
-  associate-supervisor* = {Professor Chen Wenguang},
+  % associate-supervisor  = {陈文光, 教授},
+  % associate-supervisor* = {Professor Chen Wenguang},
   %
   % 联合指导教师
   %
@@ -87,7 +87,7 @@
   %
   % 是否在中文封面后的空白页生成书脊（默认 false）
   %
-  include-spine = false,
+  include-spine = true,
   %
   % 密级和年限
   %   秘密, 机密, 绝密
@@ -123,6 +123,9 @@
 % \usepackage{nomencl}
 % \makenomenclature
 
+
+\usepackage[inkscapelatex=false]{svg} % 需使用包
+
 % 表格加脚注
 \usepackage{threeparttable}
 
@@ -138,9 +141,22 @@
 % 算法
 \usepackage{algorithm}
 \usepackage{algorithmic}
-
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+\newcommand{\code}{\texttt}
 % 量和单位
 \usepackage{siunitx}
+
+% 代码
+\usepackage{listings}
+\usepackage{framed}
+\lstset{
+ columns=fixed,       
+%  numbers=left,                                        % 在左侧显示行号
+%  numberstyle=\tiny\color{gray},                       % 设定行号格式
+ frame=none,                                          % 不显示背景边框
+ basicstyle=\ttfamily\footnotesize
+}
 
 % 参考文献使用 BibTeX + natbib 宏包
 % 顺序编码制

@@ -1,97 +1,605 @@
 % !TeX root = ../thuthesis-example.tex
 
-\chapter{数学符号和公式}
+\chapter{功能介绍}
 
-\section{数学符号}
+\section{运行 CPP2PY}
 
-中文论文的数学符号默认遵循 GB/T 3102.11—1993《物理科学和技术中使用的数学符号》
-\footnote{原 GB 3102.11—1993，自 2017 年 3 月 23 日起，该标准转为推荐性标准。}。
-该标准参照采纳 ISO 31-11:1992 \footnote{目前已更新为 ISO 80000-2:2019。}，
-但是与 \TeX{} 默认的美国数学学会（AMS）的符号习惯有所区别。
-具体地来说主要有以下差异：
-\begin{enumerate}
-  \item 大写希腊字母默认为斜体，如
-    \begin{equation*}
-      \Gamma \Delta \Theta \Lambda \Xi \Pi \Sigma \Upsilon \Phi \Psi \Omega.
-    \end{equation*}
-    注意有限增量符号 $\increment$ 固定使用正体，模板提供了 \cs{increment} 命令。
-  \item 小于等于号和大于等于号使用倾斜的字形 $\le$、$\ge$。
-  \item 积分号使用正体，比如 $\int$、$\oint$。
-  \item
-    偏微分符号 $\partial$ 使用正体。
-  \item
-    省略号 \cs{dots} 按照中文的习惯固定居中，比如
-    \begin{equation*}
-      1, 2, \dots, n \quad 1 + 2 + \dots + n.
-    \end{equation*}
-  \item
-    实部 $\Re$ 和虚部 $\Im$ 的字体使用罗马体。
-\end{enumerate}
+CPP2PY 能以命令行工具和 Python API 两种方式运行，其主要输入参数如表 \ref{tab:3.1} 所示。这些输入参数可分为四类，指定输入输出文件信息的基本参数、传递给 Libclang 的输入解析参数、传递给构建脚本的编译参数、以及控制代码生成行为的其它参数。其中前三类参数的语义大多是显而易见的，第四类参数将在下文中介绍。
 
-以上数学符号样式的差异可以在模板中统一设置。
-另外国标还有一些与 AMS 不同的符号使用习惯，需要用户在写作时进行处理：
-\begin{enumerate}
-  \item 数学常数和特殊函数名用正体，如
-    \begin{equation*}
-      \uppi = 3.14\dots; \quad
-      \symup{i}^2 = -1; \quad
-      \symup{e} = \lim_{n \to \infty} \left( 1 + \frac{1}{n} \right)^n.
-    \end{equation*}
-  \item 微分号使用正体，比如 $\dif y / \dif x$。
-  \item 向量、矩阵和张量用粗斜体（\cs{symbf}），如 $\symbf{x}$、$\symbf{\Sigma}$、$\symbfsf{T}$。
-  \item 自然对数用 $\ln x$ 不用 $\log x$。
-\end{enumerate}
+\begin{table}
+  \centering
+  \caption{CPP2PY 的主要输入参数}
+  \begin{tabular}{lll}
+    \toprule
+     参数名                 &  参数解释                                  &  默认值   \\
+    \midrule
+     \lstinline$headers$                &  C++ 头文件路径                            &  -        \\
+     \lstinline$sources$                &  C++ 实现文件路径                          &  空       \\
+     \lstinline$modulename$             &  生成模块名                                &  -        \\
+     \lstinline$setup_filename$         &  生成的构建脚本名                          &  setup.py \\
+     \lstinline$target$                 &  生成文件路径                              &  当前路径 \\
+     \lstinline$encoding$               &  文件编码                                  &  UTF8     \\
+     \lstinline$incdirs$                &  Libclang 头文件包含路径                   &  空       \\
+     \lstinline$libclang_flags$         &  传递给 Libclang 的额外参数，如 \lstinline$-DDEBUG$  &  空       \\
+     \lstinline$libraries$              &  外部链接库                                &  空       \\
+     \lstinline$library_dirs$           &  外部链接库路径                            &  空       \\
+     \lstinline$compiler_flags$         &  编译选项                                  &  空       \\
+     \lstinline$build$                  &  是否编译 Cython 代码                      &  \lstinline$True$     \\
+     \lstinline$generate_stub$          &  是否生成 Python 存根文件 (.pyi)           &  \lstinline$True$     \\
+     \lstinline$global_vars$            &  全局变量和宏所在对象名                    &  \lstinline$cvar$     \\
+     \lstinline$registered_converters$  &  自定义的类型转换器                        &  空       \\
+     \lstinline$renames_dict$           &  自定义的函数和变量重命名规则              &  空       \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:3.1}
+\end{table}
+
+通过命令行指令调用 CPP2PY，是打包简单 C/C++ 程序的不二之选。例如，下列指令将由头文件 modules.h 和代码文件 modules.cpp 组成的 C++ 项目打包成 Python 包，并命名为 cppproj。
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+cpp2py modules.h --sources modules.cpp --modname cppproj
+\end{lstlisting}
+\end{framed}
+
+如果有较为复杂的需求，如链接已有的动态共享库，则可以编写 Python 脚本，通过 API 调用 CPP2PY。下例指定了动态共享库的路径，如果不这样做的话，将在运行时因找不到共享库而引发导入异常。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+from cpp2py import Config, make_cython_extention
+
+config = Config(
+    # ...
+    library_dirs=[library_dir]
+)
+make_cython_extention(config)
+\end{lstlisting}
+\end{framed}
+
+\section{函数}
+
+当类型转换器模块提供了所有参数和返回值的处理方法时，C/C++ 函数被包装为 Python 函数。默认情况下，CPP2PY 支持的数据类型如表 \ref{tab:3.2} 所示。
+
+\begin{table}
+  \centering
+  \begin{threeparttable}[c]
+  \caption{数据在 C++ 与 Python 间的转换}
+  \label{tab:3.2}
+  \begin{tabular}{p{120pt}p{200pt}p{100pt}}
+    \toprule
+     Python =>                   &  C++                                                           &  => Python                 \\
+    \midrule
+     -                           &  \lstinline$void$                                                          &  \lstinline$None$                      \\
+     基本数值类型   &  基本数值类型，包括布尔、整数、浮点、复数（\lstinline$std::complex$）  & 基本数值类型 \\
+     \lstinline$array.array$, \lstinline$numpy.ndarray$  &  基本数值类型指针                                            &  被指向的数据              \\
+     \lstinline$Iterable$                    &  基本数值类型定长数组                                        &  \lstinline$list$                      \\
+     \lstinline$str$                         &  字符串（\lstinline$char *$, \lstinline$std::string$）                                 &  \lstinline$str$                      \\
+     \lstinline$Iterable[str]$               &  字符数组（\lstinline$char **$）                                           &  被指向的字符串            \\
+     \lstinline$Mapping$/\lstinline$Iterable$            &  STL 容器\tnote{①}  & \lstinline$set$/\lstinline$list$/\lstinline$dict$/\lstinline$tuple$    \\
+     枚举类                      &  枚举                                                          &  枚举类                    \\
+     类                          &  类、结构体、联合\tnote{②}                            &  类                        \\
+     类                          &  类、结构体、联合的指针和二重指针                                    &  类                        \\
+    \bottomrule
+  \end{tabular}
+  \begin{tablenotes}
+    \item [①]  支持 \lstinline$vector$/\lstinline$set$/\lstinline$unordered_set$/\lstinline$map$/\lstinline$unordered_map$/\lstinline$pair$ 与基本数值类型、字符串的递归组合。
+
+    \item [②]  作为返回值时要求类、结构体、联合具有拷贝构造函数。
+  \end{tablenotes}
+  \end{threeparttable}
+\end{table}
+% （
+\subsection{可扩展的类型转换器}
+
+CPP2PY 构建了一套具有可扩展性的类型转换器，用户可以通过继承抽象类 \lstinline{AbstractTypeConverter} 定义新的类型转换器，向程序提供新类型的转换方法，或重定义内置类型的转换行为。子类必须重写以下抽象方法：
+
+\begin{itemize}
+    \item \lstinline{matches}：根据参数类型和参数名判断本类型转换器是否适用于该参数，或根据返回值类型和函数名判断本类型转换器是否适用于该返回值。
+    \item \lstinline{input_type_decl}：Cython 包装函数的输入参数类型；
+    \item \lstinline{python_to_cpp}：规定如何将输入的 Python 对象转换为 C++ 参数；
+    \item \lstinline{cpp_call_arg}：规定调用 C++ 接口时如何传递参数；
+    \item \lstinline{return_output}：规定如何将 C++ 接口的返回值转换为 Python 对象并返回。
+\end{itemize}
 
 
-英文论文的数学符号使用 \TeX{} 默认的样式。
-如果有必要，也可以通过设置 \verb|math-style| 选择数学符号样式。
+在五个抽象方法中，第二至第四个是用来处理函数参数的，而第五个用于处理返回值。除此之外，\lstinline{AbstractTypeConverter} 还定义了一些非抽象方法，必要时用户可以通过重写它们扩展类型转换器的功能。
 
-关于量和单位推荐使用
-\href{http://mirrors.ctan.org/macros/latex/contrib/siunitx/siunitx.pdf}{\pkg{siunitx}}
-宏包，
-可以方便地处理希腊字母以及数字与单位之间的空白，
-比如：
-\SI{6.4e6}{m}，
-\SI{9}{\micro\meter}，
-\si{kg.m.s^{-1}}，
-\SIrange{10}{20}{\degreeCelsius}。
+\begin{itemize}
+    \item \lstinline{add_imports}：规定需要额外导入的包，默认为空；
+    \item \lstinline{pysign_type_decl}：规定在 Python 存根文件中如何标注类型，默认为 \lstinline{Any}；
+\end{itemize}
+
+在 C 程序中，常常用 \lstinline{void *} 类型的变量充当泛型指针。有鉴于此，CPP2PY 内置了一个可选的 \lstinline{void *} 类型转换器 \lstinline{VoidPtrConverter}，继承该类，指定 \lstinline{void *} 的实际指针类型，再将类型转换器子类以参数 \lstinline{registered_converters} 输入 Config 模块，就能让 CPP2PY 以处理基本数据类型指针的方式处理 \lstinline{void *}。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+from cpp2py import VoidPtrConverter
+
+class DataConverter(VoidPtrConverter):
+    def real_type(self) -> str:
+        return "double"
+\end{lstlisting}
+\end{framed}
+
+\subsection{基本类型指针和数组}
+
+Python 定义了一套包装底层连续内存的 C 层级标准，称为缓存协议。遵照缓存协议设计的数组对象之间可以快速转换，而不需要内存的复制，几乎知名 Python 库中的数组对象都实现了缓存协议，例如 Python 标准库 \lstinline{array}，数值计算库 NumPy 中的多维数组。缓存协议是 Python 庞大科学计算生态的基石。
+
+基于缓存协议，Cython 提供了一种特殊的数据结构，带类型的内存视图（typed memoryview)，能够与 C 数组、Python 数组或 NumPy 数组相互转换。CPP2PY 使用这种数据结构来向 C 接口中传递基本数据类型的指针。
+
+举例而言，假如有如下函数定义，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+double norm2(double[] vec, unsigned size);
+void increment(int* i);
+\end{lstlisting}
+\end{framed}
+用户将能在 Python 端以标准库数组或 NumPy 数组的形式向底层接口传递数组和指针参数。
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> from array import array
+>>> arr = array('d', [4., 3.])
+>>> norm2(arr, len(arr))
+5.0
+>>> import numpy as np
+>>> arr = np.array([1], dtype=np.int32)
+>>> increment(arr); arr
+array([2], dtype=int32)
+\end{lstlisting}
+\end{framed}
+
+如果输入的数组元素类型与底层接口不匹配，将引发异常。
+
+\subsection{引用和常量}
+
+在 Python 中，没有与右值引用和常量相对应的概念，因此函数参数和返回值的右值引用标识符 \lstinline{&&} 和常量标识符 \lstinline{const} 将被忽略。
+
+对于左值引用参数，只有当它指向一个类时，对引用的修改才会反映到输入参数上，因为此时 C++ 接口的输入参数直接来自于代理类，而在其他情况下，输入的 Python 对象会被先转换成 C++ 变量，对 C++ 变量的修改不会反作用到原 Python 对象上。
+
+CPP2PY 不特殊处理引用类型返回值。当然，用户可以通过自定义类型转换器来修改 CPP2PY 的行为。
+
+\subsection{默认参数}
+
+CPP2PY 支持默认参数语法，受支持的默认值类型包括基本数据类型，即整数、浮点数、布尔值，和字符串。
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+double mult(double i = 5, int j = 6ull) { return i * j; }
+\end{lstlisting}
+\end{framed}对应的 Python 接口，\begin{framed}
+\begin{lstlisting}[language=python]
+>>> mult()
+30.0
+>>> mult(j = 4, i = 1.2)
+4.8
+\end{lstlisting}
+\end{framed}
+
+如果一个参数的默认值不被 CPP2PY 所支持，那它左侧参数的默认值也将被忽略。举个例子，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+int divide(int a = 1, int* b = nullptr);
+\end{lstlisting}
+\end{framed}对应的 Python 接口中，参数 \lstinline{a} 的默认值也将被忽略。
+
+\subsection{函数重载与重命名字典}
+
+函数重载是 C++ 的一大特色，但 Cython 只支持声明 C++ 重载函数，不支持重载 Python 函数。默认情况下，CPP2PY 只会选取一个受类型转换器支持的函数、方法和构造函数进行封装，而忽略它的重载版本。
+
+为了解决这个问题，CPP2PY 引入了重命名字典的概念，用户可以以 API 参数的形式对函数进行重命名，比如，如果你有这样两个函数，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+void foo(int c) { cout << c << endl; };
+void foo(char *c) { cout << c << endl; };
+\end{lstlisting}
+\end{framed}
+
+默认情况下，CPP2PY 只会包装两个重载函数中的一个，但是通过重命名字典，就可以将它们区分开来。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+renames_dict = {
+    ("foo", "void(int)"): "foo_int",
+    ("foo", "void(char*)"): "foo_str",
+}
+\end{lstlisting}
+\end{framed}
+
+重命名字典的键为一个元组，元组的第一个元素为函数名，第二个元素为函数类型，对应的值为函数的新名称；元组也可以只由一个元素构成，在这种情况下，CPP2PY 会重命名所有名称相匹配的函数。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> foo_int(3)
+3
+>>> foo_str("3")
+3
+\end{lstlisting}
+\end{framed}
+
+重命名字典也可作用于类的方法，但不能作用于类的构造函数。
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class A {
+    void foo(int c);
+    void foo(char *c);
+}
+
+/* 
+renames_dict = {
+    ("A::foo", "void(int)"): "foo_int",
+    ("A::foo", "void(char*)"): "foo_str",
+}
+*/
+\end{lstlisting}
+\end{framed}
+
+\section{全局变量与宏}
+
+为了提供对 C/C++ 全局变量的访问，CPP2PY 创建了一个特殊的对象 \lstinline{cvar}。例如，如下 C++ 全局变量，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+const int My_variable = 5;
+double density = 0.1;
+\end{lstlisting}
+\end{framed}在 Python 中的接口如下，\begin{framed}
+\begin{lstlisting}[language=python]
+>>> cvar.My_variable
+5
+>>> cvar.density
+0.1
+>>> cvar.density = 0.9
+\end{lstlisting}
+\end{framed}
+
+给常量赋值，或赋的值类型与 C++ 变量类型不匹配，将引发异常。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> cvar.My_variable = 0
+AttributeError: attribute 'My_variable' of 
+    'globals._cvar' objects is not writable
+>>> cvar.density = "Hello"
+TypeError: must be real number, not str
+\end{lstlisting}
+\end{framed}
+
+CPP2PY 能解析定义了基本数值类型和字符串字面量的宏，并将它们视作不带作用域的常量。
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+#define GET_LUCKY "We're up all night to get lucky"
+\end{lstlisting}
+\end{framed}
+
+如果我们不想使用 \lstinline{cvar} 这个名字来访问 \lstinline{GET_LUCKY}，可以通过命令行或 API 参数指定一个新的名称。
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ cpp2py [filename] --globals myvar
+
+>>> myvar.GET_LUCKY
+"We're up all night to get lucky"
+\end{lstlisting}
+\end{framed}
+
+即便模块中没有任何需要包装的客体，CPP2PY 也会创建 \lstinline{cvar} 对象。
+
+\section{枚举}
+
+定义一组具有相关语义的常量时，枚举非常有用。典型的例子包括星期几（周日到周六）和课程成绩（“A”到“D”和“F”）。在 C++ 中，枚举实质上是在一定作用域下的整数常量。而在 Python 中，枚举类通过继承标准库中的枚举基类实现。
+
+CPP2PY 将 C/C++ 中的枚举映射为 Python 枚举类，受支持的语法包括带作用域枚举，嵌套枚举等，唯一不受支持的语法是匿名枚举。对于如下 C++ 代码，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+enum class Suit { Diamonds,
+    Hearts,
+    Clubs,
+    Spades };
+typedef enum { Hit,
+    Miss } Result;
+
+Result guess_card(Suit suit)
+{
+    if (suit == Suit::Clubs) {
+        return Hit;
+    }
+    return Miss;
+}
+\end{lstlisting}
+\end{framed}
+
+其对应的 Python 接口如下，
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> Result.Miss
+<Result.Miss: 1>
+>>> guess_card(cppenum.Suit.Clubs)
+<Result.Hit: 0>
+\end{lstlisting}
+\end{framed}
+
+\section{类、结构体与联合}
+
+C++ 中的类、结构体和联合被包装在 Python 代理类中，一个代理类对象包括两部分，分别是包含着指向底层 C++ 对象指针的 Python 对象，以及底层的 C++ 对象。以下所有对类的讨论同样适用于结构体和联合。
+
+CPP2PY 将 C++ 类中的方法、数据成员映射为 Python 代理类中的方法和属性，常量数据成员将被映射为不可变属性。
+
+静态方法的语法在 Python 中得到了保留，但静态数据成员将被包装为全局变量。例如，对于下列声明，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class A {
+public:
+    static int count;
+    static int get_count() { return count; }
+};
+\end{lstlisting}
+\end{framed}
+
+在 Python 端以访问全局变量的方式访问类的静态数据成员，
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> cvar.count = 5
+>>> A.get_count()
+5
+\end{lstlisting}
+\end{framed}
+
+CPP2PY 能够解析嵌套类，但是不支持匿名结构体和匿名联合。
+
+\subsection{类的构造}
+
+CPP2PY 会忽略掉 C++ 类的拷贝构造函数和移动构造函数。此外，构造函数的重载不被支持，在受类型转换器支持的所有构造函数中，只有一个会被包装为代理类的构造函数。
+
+根据 C++ 语法规则，如果一个类没有显式声明任何构造函数，CPP2PY 将自动为其添加一个默认构造函数。
+
+有些类确实没有可用的构造函数，比如具有纯虚方法的抽象类，以及没有公开构造函数的类。在这种情况下，CPP2PY 将在 Python 端生成一个特殊的构造函数，在 Python 对象初始化时抛出异常。
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class AbstractClass {
+protected:
+    AbstractClass() { }
+
+public:
+    virtual ~AbstractClass() { }
+    virtual double square() = 0;
+};
+\end{lstlisting}
+\end{framed}
+
+尝试在 Python 端构造抽象类，会引发异常。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> AbstractClass()
+TypeError: Can't instantiate class AbstractClass 
+    for no available constructors.
+\end{lstlisting}
+\end{framed}
+
+\subsection{继承}
+
+CPP2PY 处理继承的方式是将超类的公有方法和数据成员拷贝到派生类中。这种做法保证了生成代码的简洁，也能处理多重继承。但代价是类的继承关系将不能得到保持。以下列代码为例，
+
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class Shape {
+public:
+    virtual ~Shape() {};
+    virtual double area() = 0;
+    virtual double perimeter() = 0;
+};
+
+class Circle : public Shape {
+    int radius;
+
+public:
+    Circle(double radius) : radius(radius) {};
+    double area();
+    double perimeter();
+};
+
+class Square : public Shape {
+    double size;
+
+public:
+    Square(double size) : size(size) {};
+    double area();
+    double perimeter();
+};
+
+\end{lstlisting}
+\end{framed}
+
+对应 Python 代理类的继承关系将不能成立。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> issubclass(Circle, Shape), issubclass(Square, Shape)
+(False, False)
+\end{lstlisting}
+\end{framed}
+
+在 C++ 中，常常用基类的指针包裹派生类对象，这种多态性在函数参数中仍能得到保持，这个特性是利用 Cython 的混合类型（Fused Type）语法实现的。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+# void print_shape(Shape* shape);
+>>> print_shape(Circle(radius=2))
+area = 12.5664
+perimeter = 12.5664
+>>> print_shape(Square(size=2))
+area = 4
+perimeter = 8
+\end{lstlisting}
+\end{framed}
+
+但如果类似的情况出现在函数返回值中，CPP2PY 就无法处理，因为它不能确定对象的实际类型，而 Python 又没有将基类对象转换成派生类对象的语法。在这种情况下，用户需要根据需求修改 CPP2PY 生成的 Cython 代码。
+
+对代理类来说，只有公有继承是有意义的，因为私有继承和保护继承不能带来新的公有成员。
+
+CPP2PY 不支持以 \lstinline{using} 声明将基类非公有成员公有化的语法。
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class Derive : public Base {
+public:
+    using Base::foo;	// foo is private in Base
+}
+\end{lstlisting}
+\end{framed}
+
+\subsection{运算符重载}
+
+\begin{table}
+  \centering
+  \caption{重载运算符的转换}
+  \begin{tabular}{p{80pt}p{100pt}p{200pt}}
+    \toprule
+     类型          &  C++                    &  Python                                                       \\
+    \midrule
+     数值运算      &  \lstinline$+$，\lstinline$-$，\lstinline$*$，\lstinline$/$，\lstinline$%$          &  \lstinline$__add__$、\lstinline$__sub__$、\lstinline$__mul__$、\lstinline$__truediv__$、\lstinline$__mod__$    \\
+     就地数值运算  &  \lstinline$+=$，\lstinline$-=$，\lstinline$*=$，\lstinline$/=$，\lstinline$%=$     &  \lstinline$__iadd__$、\lstinline$__isub__$、\lstinline$__imul__$、\lstinline$__itruediv__$、\lstinline$__imod__$ \\
+     位运算        &  \lstinline$&$，\lstinline$|$ ，\lstinline$~$，\lstinline$^$，\lstinline$<<$，\lstinline$>>$    &  \lstinline$__and__$、\lstinline$__or__$、\lstinline$__invert__$、\lstinline$__xor__$、\lstinline$__lshift__$、\lstinline$__rshift__$ \\
+     就地位运算    &  \lstinline$&=$，\lstinline$|=$，\lstinline$^=$，\lstinline$<<=$，\lstinline$>>=$  &  \lstinline$__iand__$、\lstinline$__ior__$、\lstinline$__ixor__$、\lstinline$__ilshift__$、\lstinline$__irshift__$ \\
+     比较运算      & \lstinline$<$，\lstinline$>$，\lstinline$<=$，\lstinline$>=$，\lstinline$==$，\lstinline$!=$   &  \lstinline$__lt__$、\lstinline$__gt__$、\lstinline$__le__$、\lstinline$__ge__$、\lstinline$__eq__$、\lstinline$__ne__$   \\
+     函数调用      &  \lstinline$()$                     &  \lstinline$__call__$                                                   \\
+     其他运算符    &                         &  通过重命名字典指定                                           \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:3.3}
+\end{table}
+
+C++ 类的重载运算符将被尽可能的映射到 Python 中。Python 类的每个运算符都对应一个约定的魔法方法，魔法方法的特点是以双下划线开头和结尾。
+
+然而，由于两种语言不同的语法设计，CPP2PY 不能自动处理某些运算符的包装。首先，Python 不允许重载逻辑运算符 \lstinline{and(&&)}、\lstinline{or(||)} 、\lstinline{not (!)} 和赋值运算符，这类算符将会被忽略；其次，C++ 下标运算符对应 Python 中的两个魔法方法， \lstinline{__getitem__} 和 \lstinline{__setitem__}，用户应该通过重命名字典进行指定。另外，就地运算符的语义差别也值得注意，在 C++ 中，\lstinline{a += b}  表示 \lstinline{a.operator+=(b)}，而 Python 在执行就地操作时 还将执行一步额外的赋值操作，即 \lstinline{a = a.operator+=(b)}。
+
+重载运算符在 C++ 和 Python 间的转换关系如表 \ref{tab:3.3} 所示。CPP2PY 只能处理以类方法形式实现的运算符重载，以友元函数实现的运算符重载将会被忽略。
 
 
 
-\section{数学公式}
+\subsection{对象的所有权管理}
 
-数学公式可以使用 \env{equation} 和 \env{equation*} 环境。
-注意数学公式的引用应前后带括号，通常使用 \cs{eqref} 命令，比如式\eqref{eq:example}。
-\begin{equation}
-  \frac{1}{2 \uppi \symup{i}} \int_\gamma f = \sum_{k=1}^m n(\gamma; a_k) \mathscr{R}(f; a_k).
-  \label{eq:example}
-\end{equation}
+C/C++ 和 Python 以两种截然不同的方式管理对象的生命周期。 在 C++ 中，每一块的堆内存都需要被手动释放；而在 Python 中，对象的生命周期完全由垃圾回收器掌控，当一个对象的引用计数为 0 时， 它占用的内存将被回收，具体的回收时机由垃圾回收器在运行时确定。
 
-多行公式尽可能在“=”处对齐，推荐使用 \env{align} 环境。
-\begin{align}
-  a & = b + c + d + e \\
-    & = f + g
-\end{align}
+使用代理类时需要注意的一个主要问题是包装对象的内存管理。考虑下面的 C++ 代码，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+class Foo {
+	...
+};
+
+class Spam {
+public:
+    Foo *value;
+    ...
+};
+\end{lstlisting}
+\end{framed}
+
+假如在 Python 中这样使用这些类，
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+f = Foo()
+s = Spam() 
+s.value = f
+g = s.value
+g = 4
+del f
+\end{lstlisting}
+\end{framed}
+
+现在，考虑由此产生的内存管理问题。创建代理类对象时，既创建了代理类实例，又创建了底层的 C++ 实例，f 和 s 都是如此。赋值语句 \lstinline{s.value = f} 将 f 内部的指针存储到 s 底层的 C++ 对象中。\lstinline{g = s.value} 创建了第二个 \lstinline{Foo} 代理类对象，它也包裹了 f 的指针。现在，两个代理类对象和一个 C++ 对象共享了同一个指针。对 g 重新赋值，旧的 g 值引用计数为 0，这将导致一个代理类对象被回收；而紧接着 \lstinline{del f} 又销毁了一个代理类对象。 此时 \lstinline{s.value} 仍然保存着 f 内部的指针，它是否还有效呢？
+
+为了解决这个问题，CPP2PY 为代理类创建了 \lstinline{owner} 属性来控制其对底层 C++ 对象的所有权。当代理类对象被析构时，只有 \lstinline{owner} 属性为真时，底层的 C++ 对象才会被销毁。当一个新的代理类对象被创建时，\lstinline{owner} 被设置为真。当对象的指针被返回时，它被一个代理类包装，如果该指针来自一个 \lstinline{getter} 函数，那代理类对象将不具有所有权。
+
+仍以刚才的代码为例，只要在析构 f 之前将其 \lstinline{owner} 属性置为否，则 f 析构后 \lstinline{s.value} 就仍是合法的。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>>> f = Foo(); s = Spam(); s.value = f; g = s.value
+>>> g.owner
+False
+>>> f.owner
+True
+\end{lstlisting}
+\end{framed}
+
+\section{其它语法特性}
+
+\subsection{命名空间}
+
+命名空间是 C++ 用来解决名称冲突问题的语法。一个标识符可在多个命名空间中定义，不同的命名空间的同名标识符互不相干。
+
+CPP2PY 能解析 C++ 的命名空间。但是命名空间既不会出现在模块中，也不会导致模块被分解成子模块。如果你的程序存在多个命名空间，要小心名称冲突问题。函数和方法的名称冲突可以用重命名字典解决，而对于其它标识符的名称冲突问题，只能通过修改 C++ 源代码来手动解决。
+
+\subsection{类型别名}
+
+CPP2PY 支持解析以 \lstinline{typedef}、宏和 \lstinline{using} 定义的类型别名，但不支持模板别名，以下列接口为例，
+
+\begin{framed}
+\begin{lstlisting}[language=c++]
+typedef double mytype;
+#define MYTYPE mytype
+using mytype2 = const MYTYPE;
+
+mytype2 fun(mytype d) { return d + 1.0; }
+\end{lstlisting}
+\end{framed}
+
+对应到 Python 中，
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+>> fun(2)
+3.0
+\end{lstlisting}
+\end{framed}
 
 
+但需要注意的是，CPP2PY 不会将类型别名映射到 Python 端。
 
-\section{数学定理}
+\subsection{异常}
 
-定理环境的格式可以使用 \pkg{amsthm} 或者 \pkg{ntheorem} 宏包配置。
-用户在导言区载入这两者之一后，模板会自动配置 \env{thoerem}、\env{proof} 等环境。
+C++ 和 Python 都支持异常的抛出和捕获，在跨语言项目中，统一的错误处理风格有助于编写更简洁有效的程序。
 
-\begin{theorem}[Lindeberg--Lévy 中心极限定理]
-  设随机变量 $X_1, X_2, \dots, X_n$ 独立同分布， 且具有期望 $\mu$ 和有限的方差 $\sigma^2 \ne 0$，
-  记 $\bar{X}_n = \frac{1}{n} \sum_{i+1}^n X_i$，则
-  \begin{equation}
-    \lim_{n \to \infty} P \left(\frac{\sqrt{n} \left( \bar{X}_n - \mu \right)}{\sigma} \le z \right) = \Phi(z),
-  \end{equation}
-  其中 $\Phi(z)$ 是标准正态分布的分布函数。
-\end{theorem}
-\begin{proof}
-  Trivial.
-\end{proof}
+得益于 Cython，CPP2PY 支持将 C++ 异常传递到 Python 端，并将一部分 C++ 的内置异常类映射为 Python 的内置异常类，映射关系如表 \ref{tab:3.4} 所示。
 
-同时模板还提供了 \env{assumption}、\env{definition}、\env{proposition}、
-\env{lemma}、\env{theorem}、\env{axiom}、\env{corollary}、\env{exercise}、
-\env{example}、\env{remar}、\env{problem}、\env{conjecture} 这些相关的环境。
+\begin{table}
+  \centering
+  \caption{异常在 C++ 和 Python 间的转换}
+  \begin{tabular}{ll}
+    \toprule
+     C++                                           &  Python            \\
+    \midrule
+     \lstinline$std::bad_alloc$                              &  \lstinline$MemoryError$     \\
+     \lstinline$std::bad_cast$、\lstinline$std::bad_typeid$            &  \lstinline$TypeError$       \\
+     \lstinline$std::domain_error$、\lstinline$std::invalid_argument$  &  \lstinline$ValueError$      \\
+     \lstinline$std::ios_base::failure$                      &  \lstinline$IOError$         \\
+     \lstinline$std::out_of_range$                           &  \lstinline$IndexError$      \\
+     \lstinline$std::overflow_error$                         &  \lstinline$OverflowError$   \\
+     \lstinline$std::range_error$、\lstinline$std::underflow_error$    &  \lstinline$ArithmeticError$ \\
+     其他异常                                      &  \lstinline$RuntimeError$    \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:3.4}
+\end{table}
+
+
+\subsection{兼容 C}
+
+CPP2PY 默认生成 C++ 风格接口，比如使用 \lstinline{new} 而不是 \lstinline{malloc} 来构造结构体实例，并将调用 C++ 编译器编译目标代码。而 C++ 编译器为了支持重载、命名空间等语法特性，会对函数和方法做名称修饰（name mangling），如果你的项目是以 C 语言编写的，这将在模块导入时引发链接错误。
+
+有一种简单的方式来让 C 项目获得 CPP2PY 的支持，即在需要封装的接口前添加 \lstinline{extern "C"} 链接声明。

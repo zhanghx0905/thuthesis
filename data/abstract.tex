@@ -3,37 +3,22 @@
 % 中英文摘要和关键字
 
 \begin{abstract}
-  论文的摘要是对论文研究内容和成果的高度概括。
-  摘要应对论文所研究的问题及其研究目的进行描述，对研究方法和过程进行简单介绍，对研究成果和所得结论进行概括。
-  摘要应具有独立性和自明性，其内容应包含与论文全文同等量的主要信息。
-  使读者即使不阅读全文，通过摘要就能了解论文的总体内容和主要成果。
-
-  论文摘要的书写应力求精确、简明。
-  切忌写成对论文书写内容进行提要的形式，尤其要避免“第 1 章……；第 2 章……；……”这种或类似的陈述方式。
-
-  关键词是为了文献标引工作、用以表示全文主要内容信息的单词或术语。
-  关键词不超过 5 个，每个关键词中间用分号分隔。
+在 Python 语言中调用 C/C++ 跨语言接口是一种常见的需求。Python 语法便捷、应用丰富，C/C++ 性能优越、靠近底层，二者的结合能带来更高的生产力。Cython 语言在 Python 语法的基础上增加了 C 类型标注，能以极低的性能损失封装 C/C++ 接口，是为 Python 构建 C/C++ 扩展模块的理想选择之一。本文设计并实现了一种从 C/C++ 声明中自动构建 Cython 包装模块的开发工具，CPP2PY，以降低学习和编写 Cython 程序的时间成本。CPP2PY 以 C/C++ 头文件为输入，输出构建脚本、 Cython 包装代码和对应的Python 类型标注文件。它经过了详尽的软件测试，支持的语法特性包括全局变量、宏、枚举、类、结构体、联合、继承、重载和类型别名等。基于 CPP2PY，本文封装了 C 算法库 SuiteSparse 实现的大规模稀疏矩阵Cholesky分解算法，为Python科学计算库SciPy实现了正确而高效的稀疏矩阵分解功能。实验表明，封装后的 Python 接口与直接编写C程序相比性能损失低于5\%。
 
   % 关键词用“英文逗号”分隔，输出时会自动处理为正确的分隔符
   \thusetup{
-    keywords = {关键词 1, 关键词 2, 关键词 3, 关键词 4, 关键词 5},
+    keywords = {Cython, 跨语言接口, 自动化构建工具, 稀疏矩阵 Cholesky 分解 },
   }
 \end{abstract}
 
 \begin{abstract*}
-  An abstract of a dissertation is a summary and extraction of research work and contributions.
-  Included in an abstract should be description of research topic and research objective, brief introduction to methodology and research process, and summary of conclusion and contributions of the research.
-  An abstract should be characterized by independence and clarity and carry identical information with the dissertation.
-  It should be such that the general idea and major contributions of the dissertation are conveyed without reading the dissertation.
-
-  An abstract should be concise and to the point.
-  It is a misunderstanding to make an abstract an outline of the dissertation and words “the first chapter”, “the second chapter” and the like should be avoided in the abstract.
-
-  Keywords are terms used in a dissertation for indexing, reflecting core information of the dissertation.
-  An abstract may contain a maximum of 5 keywords, with semi-colons used in between to separate one another.
+It is a common requirement to call C/C++ foreign function interfaces in Python.
+Python provides convenient syntax and a thriving open source community, while C/C++
+is famous for its superior performance and proximity to the underlying layer. The combination of both can lead to higher productivity. The Cython language adds C type annotations to the Python syntax, which can encapsulate C/C++ interfaces with little performance losses, making it an ideal choice for building C/C++ extension modules for Python. This article designed and implemented a development tool, CPP2PY, that automatically builds Cython wrappers from C/C++ declarations to reduce the cost of learning and writing Cython programs. CPP2PY takes C/C++ header files as input and outputs setup scripts, Cython wrapping codes, and corresponding Python type annotation files. It has undergone sufficient testing and supports syntax features such as global variables, macros, enumerations, classes, structs, unions, inheritance, overloading, type aliases, etc. Based on CPP2PY, we encapsulated the Cholesky decomposition algorithm for large-scale sparse matrixes implemented by SuiteSparse, a C algorithm library, to achieve a correct and efficient sparse matrix decomposition function for Python scientific computing library SciPy. Experiments have shown that the performance loss of the Python interface is less
+than 5\% compared to writing C programs directly.
 
   % Use comma as separator when inputting
   \thusetup{
-    keywords* = {keyword 1, keyword 2, keyword 3, keyword 4, keyword 5},
+    keywords* = {Cython, FFI, Automated Build Tool, Sparse Cholesky Decomposition},
   }
 \end{abstract*}

@@ -3,79 +3,374 @@
 \begin{translation}
 \label{cha:translation}
 
-\title{书面翻译题目}
+\title{Cython 教程：使用 C 库}
 \maketitle
 
 \tableofcontents
 
 
-本科生的外文资料书面翻译。
+除了编写高效代码之外，Cython的主要用途之一是从Python代码调用外部C库。由于Cython本身可以编译为 C 代码，在代码中直接调用C函数实际上很容易。下面给出了一个在Cython代码中使用和包装外部C库的完整例子，包括适当的错误处理，以及为Python和Cython代码设计合适API时的注意事项。
+
+设想一下，你需要一种有效的方法在 FIFO 队列中存储整数值。因为内存真的很重要，而值实际上来自C代码，所以你无法不能在 \lstinline{list} 或 \lstinline{deque} 中创建存储Python \lstinline{int} 对象。你想要寻找 C 语言中的队列实现。
+
+在互联网上经过一番搜索，你找到了 C 算法库 CAlg\footnote{Simon Howard, C Algorithms library, http://c-algorithms.sourceforge.net/}，决定使用其双端队列。然而，为了使处理更容易，你决定把它包装在一个可以封装所有内存管理的Python扩展类型中。
+
+\section{定义外部声明}
+队列实现的C语言API定义在头文件 \lstinline{c-algorithms/src/queue.h} 中，大致上是这样的:
+
+\begin{framed}
+\begin{lstlisting}[language=c]
+/* queue.h */
+
+typedef struct _Queue Queue;
+typedef void *QueueValue;
+
+Queue *queue_new(void);
+void queue_free(Queue *queue);
+
+int queue_push_head(Queue *queue, QueueValue data);
+QueueValue queue_pop_head(Queue *queue);
+QueueValue queue_peek_head(Queue *queue);
+
+int queue_push_tail(Queue *queue, QueueValue data);
+QueueValue queue_pop_tail(Queue *queue);
+QueueValue queue_peek_tail(Queue *queue);
+
+int queue_is_empty(Queue *queue);
+\end{lstlisting}    
+\end{framed}
 
 
-\section{图表示例}
+要实现目标，第一步是在一个 \lstinline{.pxd} 文件中重新定义C语言的API，例如 \lstinline{cqueue.pxd}:
 
-\subsection{图}
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef extern from "c-algorithms/src/queue.h":
+    ctypedef struct Queue:
+        pass
+    ctypedef void* QueueValue
 
-附录中的图片示例（图~\ref{fig:appendix-translation-figure}）。
+    Queue* queue_new()
+    void queue_free(Queue* queue)
 
-\begin{figure}
-  \centering
-  \includegraphics[width=0.6\linewidth]{example-image-a.pdf}
-  \caption{附录中的图片示例}
-  \label{fig:appendix-translation-figure}
-\end{figure}
+    int queue_push_head(Queue* queue, QueueValue data)
+    QueueValue  queue_pop_head(Queue* queue)
+    QueueValue queue_peek_head(Queue* queue)
+
+    int queue_push_tail(Queue* queue, QueueValue data)
+    QueueValue queue_pop_tail(Queue* queue)
+    QueueValue queue_peek_tail(Queue* queue)
+
+    bint queue_is_empty(Queue* queue)
+\end{lstlisting}
+\end{framed}
+
+请注意，这些声明与头文件的声明几乎是一样的，所以你常常可以直接把它们复制过来。然而，你不需要提供所有的声明，只需要提供那些你在代码或其他声明中使用的声明，这样Cython就能看到一个足够的、一致的子集。然后，考虑对它们进行一定程度的调整，使它们在Cython中工作得更舒适。
+
+具体来说，你应该注意为C函数选择适当的参数名，因为Cython允许你以关键字传递参数。以后再改变它们是一种向后不兼容的API修改。现在就选择好的参数名会使在Cython代码中的使用这些函数更愉快。
+
+Cython 声明与我们上面的头文件有一个值得注意的区别，那就是第一行对 \lstinline{Queue} 结构体的声明。 \lstinline{Queue} 被视作一个不透明的句柄，只有被调用的库才知道里面到底是什么。既然没有Cython代码需要知道这个结构的内容，我们就不需要声明它的内容，只提供一个空的定义（因为我们不想声明C文件中引用的 \lstinline{_Queue} 类型）。 
+
+\lstinline{cdef struct Queue: pass} 和 \lstinline{ctypedef struct Queue: pass} 之间有一个微妙的区别。前者声明了一个类型，在C语言代码中被引用为 \lstinline{struct Queue}，而后者在C语言中被引用为 \lstinline{Queue}。这是C语言的一个特色，Cython无法隐藏。大多数现代C语言库都使用 \lstinline{ctypedef} 这种结构。
+
+另一个区别在最后一行，\lstinline{queue_is_empty()} 函数的整数返回值实际上是一个C布尔值，也就是说，唯一有趣的地方是它是否为零，表示队列是否为空。这最好由Cython的 \lstinline{bint} 类型来表达，当在C语言中使用时，它是一个普通的 \lstinline{int} 类型，但当转换为Python对象时，它被映射为Python的布尔值 \lstinline{True} 和 \lstinline{False}。这种在 \lstinline{.pxd} 文件中严格声明的方式通常可以简化使用它们的代码。
+
+为每个你使用的库，甚至每个头文件(或功能组)定义一个 \lstinline{.pxd} 文件是很好的做法，如果API数目很大的话。这样可以简化它们在其他项目中的重用。有时，你可能需要使用标准库中的C函数，或者想从CPython直接调用C-API。对于这样的常见需求，Cython提供了一组标准的 \lstinline{.pxd} 文件，以一种随时可用的、Cython 化的方式提供这些声明。主要的包是 \lstinline{cpython}、\lstinline{libc} 和 \lstinline{libcpp}。NumPy库也有一个标准的 \lstinline{.pxd} 文件 \lstinline{numpy}，因为该库在Cython代码中经常被使用。\lstinline{.pxd} 文件的完整列表参见Cython的 \lstinline{Cython/Includes/} 源代码。
+
+\section{编写一个包装类}
+
+声明了我们的C语言库的API之后，我们可以开始设计Queue类，用于包装 C 语言队列。它将存在于一个名为 \lstinline{queue.pyx}/\lstinline{queue.py} 的文件中。
+
+注意，\lstinline{.pyx}/\lstinline{.py} 文件的名称必须与带有C库的声明的 \lstinline{cqueue.pxd} 文件不同，因为两者描述的代码不同。与 \lstinline{.pyx}/\lstinline{.py} 文件同名的 \lstinline{.pxd} 文件定义了前者代码的导出声明。由于 \lstinline{cqueue.pxd} 文件包含了 C 语言库的声明，所以不能有一个 \lstinline{.pyx}/\lstinline{.py} 文件与之同名，否则 Cython 会将他们关联在一起。
+
+这是编写 \lstinline{Queue} 类的第一步：
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cimport cqueue
 
 
-\subsection{表格}
+cdef class Queue:
+    cdef cqueue.Queue* _c_queue
 
-附录中的表格示例（表~\ref{tab:appendix-translation-table}）。
+    def __cinit__(self):
+        self._c_queue = cqueue.queue_new()
+\end{lstlisting}
+\end{framed}
 
-\begin{table}
-  \centering
-  \caption{附录中的表格示例}
-  \begin{tabular}{ll}
-    \toprule
-    文件名          & 描述                         \\
-    \midrule
-    thuthesis.dtx   & 模板的源文件，包括文档和注释 \\
-    thuthesis.cls   & 模板文件                     \\
-    thuthesis-*.bst & BibTeX 参考文献表样式文件    \\
-    thuthesis-*.bbx & BibLaTeX 参考文献表样式文件  \\
-    thuthesis-*.cbx & BibLaTeX 引用样式文件        \\
-    \bottomrule
-  \end{tabular}
-  \label{tab:appendix-translation-table}
-\end{table}
+注意定义的是 \lstinline{__cinit__} 而不是 \lstinline{__init__}。虽然 \lstinline{__init__} 也是可用的，但它不能保证可以运行（例如，用户可以创建一个子类，但却忘记调用基类的构造函数）。考虑到不初始化 C 指针经常导致Python解释器的硬崩溃，Cython提供了 \lstinline{__cinit__}，它总是在构造时立即被调用，甚至在 CPython 调用 \lstinline{__init__} 之前，因此它是初始化新实例的静态属性（\lstinline{cdef} 字段）的正确地方。然而，由于 \lstinline{__cinit__} 是在对象构造过程中调用的，所以 \lstinline{self} 还没有完全构造好，我们必须避免对 \lstinline{self} 做任何事情，除了赋值给静态属性（\lstinline{cdef} 字段）。
 
+还要注意的是，上述方法不需要参数，尽管子类型可能希望接受一些参数。无参数的 \lstinline{__cinit__()} 方法是这里的一个特例，它只是不接受任何传递给构造函数的参数，并不阻止子类添加参数。如果在 \lstinline{__cinit__()} 的签名中使用了参数，则必须与类层次结构中任何的 \lstinline{__init__} 方法的参数一致。
 
-\section{数学公式}
+\section{内存管理}
 
-附录中的数学公式示例（公式\eqref{eq:appendix-translation-equation}）。
-\begin{equation}
-  \frac{1}{2 \uppi \symup{i}} \int_\gamma f = \sum_{k=1}^m n(\gamma; a_k) \mathscr{R}(f; a_k)
-  \label{eq:appendix-translation-equation}
-\end{equation}
+在我们继续实现其他方法之前，有必要指出上一节的实现并不安全。如果在调用 \lstinline{queue_new()} 时出现任何错误，这段代码将简单地隐藏错误，程序可能会在之后的某处崩溃。根据 \lstinline{queue_new()} 函数的文档，调用失败的唯一原因是内存不足。在这种情况下，它将返回 \lstinline{NULL}，而不是一个指向新队列的指针。
+
+解决此问题的Python方法是引发 \lstinline{MemoryError} 异常。我们可以这样修改初始化函数:
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cimport cqueue
 
 
-\section{文献引用}
+cdef class Queue:
+    cdef cqueue.Queue* _c_queue
 
-文献引用示例\cite{abrahams99tex}。
+    def __cinit__(self):
+        self._c_queue = cqueue.queue_new()
+        if self._c_queue is NULL:
+            raise MemoryError()
+\end{lstlisting}
+\end{framed}
 
+在特定情况下，创建并抛出一个新的异常实例 \lstinline{MemoryError} 实际上可能会失败，因为我们正在耗尽内存。幸运的是，CPython提供了一个C-API函数\lstinline{ PyErr_NoMemory() }，它可以安全地为我们引发正确的异常。每当你编写\lstinline{ raise MemoryError }或\lstinline{ raise MemoryError() }时，Cython会自动替换将它这个C-API调用。如果使用旧版本 Cython，则必须从标准包\lstinline{ cpython }中cimport C-API函数并调用。 
+
+接下来要做的事情是，在Queue实例不再被使用时(即它的所有引用被删除)时进行清理。为此，CPython 提供了一个回调函数，Cython将其作为特殊方法 \lstinline{__dealloc__()} 提供。在我们的例子中，要做的就是释放C队列，当然前提是我们成功地在 \lstinline{__cinit__} 中初始化了它:
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+def __dealloc__(self):
+    if self._c_queue is not NULL:
+        cqueue.queue_free(self._c_queue)
+\end{lstlisting}
+\end{framed}
+
+\section{编译链接}
+
+现在，我们有了一个可以工作的Cython模块，我们可以测试这个模块。要编译它，我们需要为setuptools配置一个\lstinline{ setup.py }脚本。下面是用于编译Cython模块的最基本脚本：
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+from setuptools import Extension, setup
+from Cython.Build import cythonize
+
+setup(
+    ext_modules = cythonize([Extension("queue", ["queue.pyx"])])
+)
+\end{lstlisting}
+\end{framed}
+
+要针对外部C库进行构建，我们需要确保Cython找到必要的库。有两种实现方法。第一，我们可以告诉setuptools在哪里找到c源文件，让它来自动编译\lstinline{ queue.c }实现。或者，我们可以构建并安装C-Alg作为系统库，并动态链接它。如果其他应用程序也使用C-Alg，则后者很有用。
+
+\subsection{静态链接}
+
+为了自动构建 C 代码，我们需要在 \lstinline{queue.pyx}/\lstinline{queue.py} 中包含下列编译指令，
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+# distutils: sources = c-algorithms/src/queue.c
+# distutils: include_dirs = c-algorithms/src/
+
+cimport cqueue
+
+
+cdef class Queue:
+    cdef cqueue.Queue* _c_queue
+
+    def __cinit__(self):
+        self._c_queue = cqueue.queue_new()
+        if self._c_queue is NULL:
+            raise MemoryError()
+
+    def __dealloc__(self):
+        if self._c_queue is not NULL:
+            cqueue.queue_free(self._c_queue)
+\end{lstlisting}
+\end{framed}
+
+\lstinline{sources }编译指令给出了setuptools将要编译并(静态地)链接到最终扩展模块的C文件路径。一般来说，所有相关头文件都应该在\lstinline{ include_dirs }中找到。现在我们可以使用以下命令来构建项目:
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ python setup.py build_ext -i
+\end{lstlisting}
+\end{framed}
+测试构建是否成功，
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ python -c 'import queue; Q = queue.Queue()'
+\end{lstlisting}
+\end{framed}
+
+\subsection{动态链接}
+
+如果我们要包装的库已经安装在系统上，那么动态链接是有用的。要执行动态链接，我们首先需要构建和安装c-alg。
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ cd c-algorithms
+$ sh autogen.sh
+$ ./configure
+$ make install
+\end{lstlisting}
+\end{framed}
+
+此后应该存在文件 \lstinline{/usr/local/lib/libcalg.so}。
+
+此路径适用于Linux系统，可能在其他平台上有所不同，所以你需要根据 \lstinline{libcalg.so} 还是 \lstinline{libcalg.dll} 存在于在你的系统上来修改接下来的教程。
+
+在这种方法中，我们需要告诉安装脚本链接外部库。为此，我们需要扩展安装脚本，将扩展设置从
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+ext_modules = cythonize([Extension("queue", ["queue.pyx"])])
+\end{lstlisting} 
+\end{framed}
+更改为
+\begin{framed}
+\begin{lstlisting}[language=python]
+ext_modules = cythonize([
+    Extension("queue", ["queue.pyx"],
+              libraries=["calg"])
+    ])
+\end{lstlisting}
+\end{framed}
+
+现在我们应该能这样构建项目，
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ python setup.py build_ext -i
+\end{lstlisting}
+\end{framed}
+
+如果 \lstinline{libcalg} 被安装到其它位置，用户可以通过从外部传递适当的C编译器标志来提供所需的参数，例如：
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+CFLAGS="-I/usr/local/otherdir/calg/include"  \
+LDFLAGS="-L/usr/local/otherdir/calg/lib"     \
+    python setup.py build_ext -i
+\end{lstlisting}
+\end{framed}
+
+在运行我们的模块之前，我们还需要保证 \lstinline{libcalg} 的路径在 \lstinline{LD_LIBRARY_PATH} 环境变量中，通过设置：
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+\end{lstlisting}
+\end{framed}
+
+在第一次编译了模块后，我们可以导入它，并实例化一个新的 \lstinline{Queue}：
+
+\begin{framed}
+\begin{lstlisting}[language=sh]
+$ export PYTHONPATH=.
+$ python -c 'import queue; Q = queue.Queue()'
+\end{lstlisting}
+\end{framed}
+
+然而，这是我们的 \lstinline{Queue} 类到目前为止所能做的全部工作，让我们来使它更有用。
+
+\section{功能映射}
+
+在实现这个类的公共接口之前，最好看看Python提供了哪些接口，例如它的 \lstinline{list} 或 \lstinline{collections.deque} 类。由于我们只需要一个先进先出的队列，提供 \lstinline{append()}、\lstinline{peek()} 和 \lstinline{pop()} 方法就足够了，另外还有一个 \lstinline{extend()} 方法可以一次添加多个值。另外，由于我们已经知道所有的值都将来自C语言，所以现在最好只提供 \lstinline{cdef} 方法，并直接给它们一个C语言接口。
+
+在C语言数据结构中，常常以 \lstinline{void*} 的方式存储任意类型的数据。由于我们只想存储 \lstinline{int} 值，而它的大小通常与指针类型的大小相同，可以通过一个技巧来避免额外的内存分配：我们把 \lstinline{int} 转换成 \lstinline{void*}，直接存储为指针值，反之亦然。
+
+下面是 \lstinline{append()} 方法的一个简单实现：
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef append(self, int value):
+    cqueue.queue_push_tail(self._c_queue, <void*>value)
+\end{lstlisting}
+\end{framed}
+
+同样，与 \lstinline{__cinit__()} 方法相同的错误处理考虑也适用于此，因此我们最终用这个实现代替：
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef append(self, int value):
+    if not cqueue.queue_push_tail(self._c_queue,
+                                  <void*>value):
+        raise MemoryError()
+\end{lstlisting}
+\end{framed}
+
+增加一个 \lstinline{extend()} 方法现在应该很直接：
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef extend(self, int* values, size_t count):
+    """Append all ints to the queue.
+    """
+    cdef int value
+    for value in values[:count]:
+        self.append(value)
+\end{lstlisting}
+\end{framed}这样从 C 语言中读取值很方便。
+
+到目前为止，我们只能向队列中添加数据。下一步是编写两个方法来获取第一个元素：\lstinline{peek()} 和 \lstinline{pop()}，它们分别提供只读和破坏性的读访问。为了避免在将 \lstinline{void*} 直接转换为 \lstinline{int} 时出现编译器警告，我们使用了一个足够大的中间数据类型来容纳 \lstinline{void*}。这里使用 \lstinline{Py_ssize_t}:
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef int peek(self):
+    return <Py_ssize_t>cqueue.queue_peek_head(self._c_queue)
+
+cdef int pop(self):
+    return <Py_ssize_t>cqueue.queue_pop_head(self._c_queue)
+\end{lstlisting}
+\end{framed}
+
+通常，在C语言中，当我们将一个较大的整数类型转换为较小的整数类型而不检查边界时，会有丢失数据的风险，而 \lstinline{Py_ssize_t} 可能是一个比 \lstinline{int} 更大的类型。但是由于我们控制了如何将值添加到队列中，我们已经知道所有在队列中的值都适用于 \lstinline{int}，所以上面从 \lstinline{void*} 到 \lstinline{Py_ssize_t} 到 \lstinline{int}（返回类型）的转换在设计上是安全的。
+
+\section{错误处理}
+
+现在，当队列为空时会发生什么？根据文档，这些函数返回一个 \lstinline{NULL} 指针，这通常不是一个有效值。但是，由于我们只是简单地对整数进行转换，我们不能再区分返回值为 \lstinline{NULL} 是由于队列为空，还是因为队列中存储的值是 \lstinline{0}。在Cython代码中，我们希望第一种情况引发一个异常，而第二种情况应该简单地返回 "0"。为了处理这个问题，我们需要对这个值进行特殊处理，并检查队列是否确实是空的。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef int peek(self) except? -1:
+    cdef int value = <Py_ssize_t>cqueue.queue_peek_head(self._c_queue)
+    if value == 0:
+        if cqueue.queue_is_empty(self._c_queue):
+            raise IndexError("Queue is empty")
+    return value
+\end{lstlisting}
+\end{framed}
+
+请注意我们是如何在方法返回值通常不是 0 的情况下，有效地创建了一条捷径的——只有特殊情况需要额外检查队列是否为空。
+
+方法签名中的 \lstinline{except? -1} 声明也属于同一类别。如果这个函数是一个返回Python对象值的Python函数，CPython会简单地在内部返回 \lstinline{NULL} 而不是Python对象来表示异常，这将立即被周围的代码所传播。
+
+问题是返回类型是 \lstinline{int}，任何 \lstinline{int} 值都是有效的队列元素值，所以没有办法显式地向调用代码发出错误信号。事实上，没有这样的声明，Cython就没有明确的办法知道在异常情况下应该返回什么，也没有办法让调用代码知道这个方法可能以异常退出。调用代码处理这种情况的唯一方法是在从函数返回时调用 \lstinline{PyErr_Occurred()} 来检查是否有异常被抛出，如果有，就传播异常。这显然对性能有影响。因此，Cython允许你声明在异常情况下应该隐式返回哪个值，这样周围的代码只需要接收到这个确切的值时检查异常。
+
+我们选择使用 -1作为异常返回值，因为我们希望它是一个不太可能被放入队列的值。\lstinline{except? -1} 声明表明返回值是模糊的（毕竟队列中可能有值为 -1），在调用代码中需要使用 \lstinline{PyErr_Occurred()} 进行额外的异常检查。如果没有它，调用这个方法并收到异常返回值的 Cython 代码会默认（有时会错误地）已经产生了一个异常。而所有其他的返回值在任何情况都几乎不带来任何性能损失，从而再次为"正常"值创造了一个捷径。
+
+既然 \lstinline{peek()} 方法已经实现，\lstinline{pop()} 方法也需要调整。因为它从队列中移除一个值，然而，仅仅测试弹出元素后队列是否为空是不够的。相反，我们必须在弹出前测试它。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+cdef int pop(self) except? -1:
+    if cqueue.queue_is_empty(self._c_queue):
+        raise IndexError("Queue is empty")
+    return <Py_ssize_t>cqueue.queue_pop_head(self._c_queue)
+\end{lstlisting}异常传播的返回值与 \lstinline{peek()} 的声明完全一致。
+\end{framed}
+
+最后，我们可以通过实现\lstinline{__bool__()}特殊方法，以Python的惯用方式为队列提供一个空闲指示器(注意Python 2称这个方法为\lstinline{__nonzero__}，而Cython支持使用这两个名字)。
+
+\begin{framed}
+\begin{lstlisting}[language=python]
+def __bool__(self):
+    return not cqueue.queue_is_empty(self._c_queue)
+\end{lstlisting}
+\end{framed}
+
+注意，该方法返回 \lstinline{True} 或 \lstinline{False}，因为我们在 \lstinline{cqueue.pxd} 中声明 \lstinline{queue_is_empty()} 函数的返回类型为 \lstinline{bint}。
 
 \appendix
 
-\section{附录}
-
-附录的内容。
-
 
 % 书面翻译的参考文献
-\bibliographystyle{unsrtnat}
-\bibliography{ref/appendix}
+% \bibliographystyle{unsrtnat}
+% \bibliography{ref/appendix}
 
 % 书面翻译对应的原文索引
 \begin{translation-index}
-  \nocite{salomon1995advanced}
+  \nocite{usingc}
   \bibliographystyle{unsrtnat}
   \bibliography{ref/appendix}
 \end{translation-index}
